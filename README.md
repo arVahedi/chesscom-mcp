@@ -160,11 +160,11 @@ Install development tooling in the same project virtual environment:
 Run the offline checks:
 
 ```sh
-.venv/bin/ruff format --check src tests
-.venv/bin/ruff check src tests
-.venv/bin/mypy src
-PYTHONPATH=src .venv/bin/pytest --cov=chess_com_mcp --cov-report=term-missing
-.venv/bin/pip-audit -r requirements.txt
+.venv/bin/ruff format --check src tests     # Verifies source and test files follow Ruff formatting without modifying them.
+.venv/bin/ruff check src tests              # Checks source and test files for linting errors and unsafe patterns.
+.venv/bin/mypy src                          # Statically checks type annotations in the source code.
+PYTHONPATH=src .venv/bin/pytest --cov=chess_com_mcp --cov-report=term-missing       # Runs tests and reports coverage, including untested lines.
+.venv/bin/pip-audit -r requirements.txt     # Checks production dependencies for known security vulnerabilities.
 ```
 
 The live Chess.com smoke test is opt-in and performs a real public API request:
