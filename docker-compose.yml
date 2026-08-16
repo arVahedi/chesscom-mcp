@@ -13,7 +13,7 @@ services:
       CHESS_COM_MCP_ALLOWED_HOSTS: "127.0.0.1:8765,localhost:8765"
       CHESS_COM_MCP_LOG_LEVEL: "WARNING"
     ports:
-      - "8765:8765"
+      - "127.0.0.1:8765:8765"
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
