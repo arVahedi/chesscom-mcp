@@ -11,6 +11,8 @@ from chess_com_mcp.config import Config
 from chess_com_mcp.server import create_server
 from chess_com_mcp.transport import create_http_app, run_http
 
+pytestmark = pytest.mark.integration
+
 
 def dummy_app() -> Any:
     async def app(scope: Any, receive: Any, send: Any) -> None:

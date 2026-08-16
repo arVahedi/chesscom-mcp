@@ -11,6 +11,8 @@ from chess_com_mcp.client import ChessComClient
 from chess_com_mcp.config import Config
 from chess_com_mcp.server import create_server
 
+pytestmark = pytest.mark.integration
+
 
 class Upstream:
     def __init__(self, responses: dict[str, tuple[str, Any]]) -> None:

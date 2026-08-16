@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_INPUT: "1"
+
+jobs:
+  quality:
+    name: Quality, package, and dependency checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Validate workflow and shell syntax
+        run: |
+          bash -n scripts/http-e2e.sh scripts/compose-smoke.sh
+          docker run --rm \
+            --volume "$PWD:/repo:ro" \
+            --workdir /repo \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Create virtual environment and install locked dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
+          .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+      - name: Verify dependency consistency
+        run: .venv/bin/python -m pip check
+      - name: Check formatting
+        run: .venv/bin/ruff format --check src tests
+      - name: Lint source and tests
+        run: .venv/bin/ruff check src tests
+      - name: Type-check source
+        run: .venv/bin/mypy src
+      - name: Build wheel and source distribution
+        run: .venv/bin/python -m build --no-isolation
+      - name: Audit runtime dependencies
+        run: |
+          .venv/bin/pip-audit -r requirements.txt --progress-spinner off
+          .venv/bin/pip-audit -r requirements-dev.txt --progress-spinner off
+
+  tests:
+    name: ${{ matrix.suite.name }} tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: Unit
+            marker: not integration and not live
+          - name: Integration
+            marker: integration and not live
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Create virtual environment and install locked dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
+          .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+      - name: Run ${{ matrix.suite.name }} tests
+        run: PYTHONPATH=src .venv/bin/pytest -m '${{ matrix.suite.marker }}'
+
+  coverage:
+    name: Coverage report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Create virtual environment and install locked dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
+          .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+      - name: Run offline test suite with coverage
+        run: |
+          PYTHONPATH=src .venv/bin/pytest -m 'not live' \
+            --cov=chess_com_mcp \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov \
+            --junitxml=junit.xml
+      - name: Add coverage to job summary
+        if: always()
+        run: |
+          if [[ -f .coverage ]]; then
+            {
+              echo '## Coverage'
+              echo
+              .venv/bin/coverage report --format=markdown
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            htmlcov/
+            junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e:
+    name: Native HTTP MCP end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Create virtual environment and install locked runtime
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements.txt
+          .venv/bin/python -m pip install --require-hashes -r requirements-build.txt
+          .venv/bin/python -m pip install --no-deps --no-build-isolation .
+      - name: Run end-to-end test
+        run: scripts/http-e2e.sh
+
+  smoke:
+    name: Docker and Caddy HTTPS smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Run Compose smoke test
+        run: scripts/compose-smoke.sh

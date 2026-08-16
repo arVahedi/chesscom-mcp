@@ -41,7 +41,10 @@ mypy_path = "src"
 [tool.pytest.ini_options]
 addopts = "--strict-markers --strict-config"
 asyncio_mode = "auto"
-markers = ["integration: explicitly enabled live Chess.com tests"]
+markers = [
+    "integration: offline tests spanning multiple application components",
+    "live: explicitly enabled tests against the public Chess.com API",
+]
 testpaths = ["tests"]
 
 [tool.coverage.run]

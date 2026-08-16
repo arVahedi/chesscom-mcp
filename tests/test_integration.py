@@ -7,7 +7,7 @@ import pytest
 from chess_com_mcp.client import ChessComClient
 
 
-@pytest.mark.integration
+@pytest.mark.live
 @pytest.mark.skipif(os.environ.get("CHESS_COM_MCP_RUN_INTEGRATION") != "1", reason="live tests are opt-in")
 @pytest.mark.asyncio
 async def test_public_profile_live() -> None:

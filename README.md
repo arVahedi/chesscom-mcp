@@ -1,5 +1,8 @@
 # Chess.com Personal MCP Server
 
+[![CI](https://github.com/arVahedi/chesscom-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/arVahedi/chesscom-mcp/actions/workflows/ci.yml)
+[![Live integration](https://github.com/arVahedi/chesscom-mcp/actions/workflows/live-integration.yml/badge.svg)](https://github.com/arVahedi/chesscom-mcp/actions/workflows/live-integration.yml)
+
 A stateless, read-only MCP gateway for the public [Chess.com Published Data API](https://www.chess.com/news/view/published-data-api). It gives Codex or another trusted agent a small typed tool surface without storing Chess.com credentials, cookies, sessions, API keys, games, or query history.
 
 ```text
@@ -170,8 +173,14 @@ PYTHONPATH=src .venv/bin/pytest --cov=chess_com_mcp --cov-report=term-missing   
 The live Chess.com smoke test is opt-in and performs a real public API request:
 
 ```sh
-CHESS_COM_MCP_RUN_INTEGRATION=1 PYTHONPATH=src .venv/bin/pytest -m integration tests/test_integration.py
+CHESS_COM_MCP_RUN_INTEGRATION=1 PYTHONPATH=src .venv/bin/pytest -m live tests/test_integration.py
 ```
+
+### Continuous integration
+
+GitHub Actions runs workflow validation, formatting, linting, strict type checking, package building, dependency auditing, unit tests, offline integration tests, a native HTTP end-to-end test, and a Docker/Caddy HTTPS smoke test for every pull request and push to `main`. It also enforces the 90% coverage threshold, writes a coverage table to the workflow summary, and uploads XML, HTML, and JUnit reports for 14 days. The live Chess.com test runs after pushes to `main`, every Monday, or manually.
+
+In the GitHub branch-protection rules for `main`, mark the CI quality, unit, integration, coverage, end-to-end, and smoke jobs as required before merging. Keep the live integration workflow post-merge because it intentionally depends on an external service.
 
 Regenerate lock files only from the virtual environment after intentionally updating the corresponding `.in` file:
 
