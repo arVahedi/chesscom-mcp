@@ -1,0 +1,188 @@
+# Chess.com Personal MCP Server
+
+A stateless, read-only MCP gateway for the public [Chess.com Published Data API](https://www.chess.com/news/view/published-data-api). It gives Codex or another trusted agent a small typed tool surface without storing Chess.com credentials, cookies, sessions, API keys, games, or query history.
+
+```text
+Codex -> HTTPS / Caddy -> authenticated MCP container -> HTTPS -> api.chess.com/pub
+```
+
+The primary transport is stateless Streamable HTTP with JSON responses. Local stdio is the default CLI transport. Remote Chess.com strings are returned as untrusted external data and are never treated as instructions or followed as URLs.
+
+## Tools
+
+| Tool | Purpose |
+| --- | --- |
+| `get_player_profile(username)` | Public player profile |
+| `get_player_stats(username)` | Public player statistics |
+| `is_player_online(username)` | Current online status |
+| `get_player_current_daily_games(username, offset=0, limit=25)` | Paginated current Daily games |
+| `get_player_game_archives(username)` | Validated `{year, month}` archive entries |
+| `get_player_games_by_month(username, year, month, offset=0, limit=25)` | Paginated monthly games without embedded PGN |
+| `get_player_games_pgn_by_month(username, year, month, offset_chars=0, max_chars=50000)` | Segmented monthly PGN text |
+| `get_titled_players(title, offset=0, limit=100)` | Paginated titled-player names |
+| `get_club_profile(url_id)` | Public club profile |
+| `get_club_members(url_id, category="all_time", offset=0, limit=100)` | Paginated club members |
+
+All endpoints and the upstream hostname are constructed internally. There is no tool accepting a URL, host, endpoint, filesystem path, or command.
+
+## Native installation
+
+Python packages must be installed only in a virtual environment. Python 3.12 or newer is required.
+
+```sh
+python3.12 -m venv .venv
+.venv/bin/python -m pip install --require-hashes -r requirements.txt
+.venv/bin/python -m pip install --require-hashes -r requirements-build.txt
+.venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+```
+
+Run the local stdio server:
+
+```sh
+.venv/bin/chess-com-mcp
+```
+
+For direct HTTP on loopback, generate a token and set the required exact Host value:
+
+```sh
+MCP_TOKEN="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export MCP_TOKEN
+export CHESS_COM_MCP_AUTH_TOKENS="$(.venv/bin/python -c 'import json,os; print(json.dumps({"codex-local": os.environ["MCP_TOKEN"]}))')"
+export CHESS_COM_MCP_ALLOWED_HOSTS=127.0.0.1:8765
+.venv/bin/chess-com-mcp --transport http
+```
+
+The raw HTTP listener has no TLS. Keep it on loopback unless a trusted TLS reverse proxy protects it.
+
+## Configuration
+
+| Variable | Default | Rules |
+| --- | --- | --- |
+| `CHESS_COM_MCP_TRANSPORT` | `stdio` | `stdio` or `http`; `--transport` overrides it |
+| `CHESS_COM_MCP_BIND_HOST` | `127.0.0.1` | IPv4 or IPv6 literal only; hostnames and interface names are rejected |
+| `CHESS_COM_MCP_PORT` | `8765` | `1024..65535` |
+| `CHESS_COM_MCP_AUTH_TOKENS` | unset | HTTP requires a nonempty JSON map; each unpadded base64url token must decode to at least 32 bytes |
+| `CHESS_COM_MCP_ALLOWED_HOSTS` | unset | HTTP requires comma-separated exact Host header values; no wildcard |
+| `CHESS_COM_MCP_ALLOWED_ORIGINS` | unset | Optional comma-separated exact `http://` or `https://` origins; a missing Origin is accepted |
+| `CHESS_COM_MCP_TIMEOUT_SECONDS` | `20` | `1..60` seconds |
+| `CHESS_COM_MCP_MAX_RESPONSE_BYTES` | `10485760` | Decoded upstream response ceiling, `65536..10485760` bytes |
+| `CHESS_COM_MCP_LOG_LEVEL` | `WARNING` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+
+Agent names may contain ASCII letters, digits, `_`, and `-`, with length `1..50`. Tokens must be unique. Every configured agent has the same read-only permissions. Tokens are accepted only in the `Authorization: Bearer ...` header and every `/mcp` request is authenticated. `/healthz` is intentionally unauthenticated and always returns `{"status":"ok"}`.
+
+Binding to `0.0.0.0`, `::`, or any other non-loopback address emits a warning because the internal listener is plaintext HTTP. HTTP startup fails closed when either authentication tokens or the Host allowlist is absent.
+
+## Docker image
+
+Build the digest-pinned, multi-stage image locally:
+
+```sh
+docker build -t chess-com-mcp:local .
+```
+
+The final image runs as UID/GID `10001`, contains only runtime dependencies, removes Python and operating-system package managers, and defaults to `chess-com-mcp --transport http`. Override the command to use stdio or other supported CLI arguments.
+
+## Docker Compose with Caddy
+
+Choose a LAN hostname that resolves to the Docker host from the Codex device. Supply both required values from the invoking shell; do not commit them to a file:
+
+```sh
+export CHESS_COM_MCP_PUBLIC_HOST=chess-mcp.home.arpa
+MCP_TOKEN="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export MCP_TOKEN
+export CHESS_COM_MCP_AUTH_TOKENS="$(.venv/bin/python -c 'import json,os; print(json.dumps({"codex-laptop": os.environ["MCP_TOKEN"]}))')"
+docker compose up --build -d
+```
+
+Compose starts exactly `chess-com-mcp` and `caddy` on a private bridge network. The MCP container binds `0.0.0.0:8765` internally but does not publish that port. Only Caddy publishes TCP/UDP port 443. Caddy uses its internal CA, proxies only `/mcp` and `/healthz`, and returns `404` elsewhere. Its PKI and operational state live in named volumes.
+
+The application constructs requests only below `https://api.chess.com/pub`, uses GET, verifies TLS, ignores proxy environment variables, refuses redirects, and bounds concurrency, retries, time, and decoded bytes. If the Docker host needs a network-level outbound allowlist in addition to this application boundary, enforce TCP 443 access to Chess.com's API at the host firewall or egress gateway.
+
+### Trust Caddy's internal root certificate
+
+After Caddy starts, copy its root certificate to the Docker host:
+
+```sh
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+```
+
+Transfer `caddy-root.crt` to each trusted agent device over an authenticated channel and verify its fingerprint out of band. Install it as a trusted root:
+
+- macOS: open Keychain Access, import the certificate into the System keychain, and set it to **Always Trust**; administrator approval is required.
+- Debian/Ubuntu: copy it to `/usr/local/share/ca-certificates/chess-com-mcp.crt` and run `sudo update-ca-certificates`.
+- Other systems: use the operating system's root trust-store procedure. Do not disable TLS verification.
+
+Removing the `caddy_data` volume destroys the private CA. That requires distributing and trusting the newly generated root again.
+
+## Codex configuration
+
+Export the token on the Codex device under a dedicated environment variable, then add the server to `~/.codex/config.toml`:
+
+```sh
+export CHESS_COM_MCP_TOKEN='the-token-for-this-agent'
+```
+
+```toml
+[mcp_servers.chess_com]
+url = "https://chess-mcp.home.arpa/mcp"
+bearer_token_env_var = "CHESS_COM_MCP_TOKEN"
+required = true
+```
+
+Restart Codex after changing its environment or MCP configuration. This follows the [official Codex MCP configuration](https://developers.openai.com/codex/mcp). Never put the token in the URL, TOML file, command-line arguments, cookies, or source control.
+
+For local stdio instead:
+
+```toml
+[mcp_servers.chess_com_local]
+command = "/absolute/path/to/chesscom-mcp/.venv/bin/chess-com-mcp"
+```
+
+### Rotation and revocation
+
+Generate a different random token for each agent. To rotate one agent, replace only that map entry in the host environment and recreate the MCP container. To revoke an agent, remove its entry and recreate the container:
+
+```sh
+docker compose up -d --force-recreate chess-com-mcp
+```
+
+Treat the environment of the Docker host and Codex process as secret-bearing. Avoid `.env` files, shell history, logs, screenshots, and process arguments that disclose tokens.
+
+## Development and verification
+
+Install development tooling in the same project virtual environment:
+
+```sh
+.venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
+.venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+```
+
+Run the offline checks:
+
+```sh
+.venv/bin/ruff format --check src tests
+.venv/bin/ruff check src tests
+.venv/bin/mypy src
+PYTHONPATH=src .venv/bin/pytest --cov=chess_com_mcp --cov-report=term-missing
+.venv/bin/pip-audit -r requirements.txt
+```
+
+The live Chess.com smoke test is opt-in and performs a real public API request:
+
+```sh
+CHESS_COM_MCP_RUN_INTEGRATION=1 PYTHONPATH=src .venv/bin/pytest -m integration tests/test_integration.py
+```
+
+Regenerate lock files only from the virtual environment after intentionally updating the corresponding `.in` file:
+
+```sh
+.venv/bin/pip-compile --generate-hashes --resolver=backtracking --output-file=requirements.txt requirements.in
+.venv/bin/pip-compile --generate-hashes --allow-unsafe --resolver=backtracking --output-file=requirements-build.txt requirements-build.in
+.venv/bin/pip-compile --generate-hashes --allow-unsafe --resolver=backtracking --output-file=requirements-dev.txt requirements-dev.in
+```
+
+Expected upstream failures become safe structured MCP errors. Successful results use a stable `ok`, `source`, `untrusted_external_data`, `data`, and optional pagination envelope. The server does not cache, persist, or log returned Chess.com content.
+
+## License
+
+[MIT](LICENSE)

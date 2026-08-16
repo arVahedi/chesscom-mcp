@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chess-com-mcp"
+version = "0.1.0"
+description = "Secure, read-only MCP access to the Chess.com Published Data API"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "chess-com-mcp contributors" }]
+dependencies = [
+    "httpx>=0.28,<1",
+    "mcp>=2,<3",
+]
+
+[project.scripts]
+chess-com-mcp = "chess_com_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S104"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["chess_com_mcp"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config"
+asyncio_mode = "auto"
+markers = ["integration: explicitly enabled live Chess.com tests"]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["chess_com_mcp"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true

@@ -1,0 +1,18 @@
+{$CHESS_COM_MCP_PUBLIC_HOST} {
+	tls internal
+
+	@published path /mcp /healthz
+	handle @published {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy chess-com-mcp:8765 {
+			header_up Host {host}
+			header_up Authorization {http.request.header.Authorization}
+		}
+	}
+
+	handle {
+		respond "Not Found" 404
+	}
+}
