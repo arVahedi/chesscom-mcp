@@ -13,4 +13,6 @@ htmlcov/
 .ruff_cache/
 build/
 dist/
+.idea
+*.iml
 
