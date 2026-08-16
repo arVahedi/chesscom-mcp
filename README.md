@@ -6,7 +6,7 @@
 A stateless, read-only MCP gateway for the public [Chess.com Published Data API](https://www.chess.com/news/view/published-data-api). It gives Codex or another trusted agent a small typed tool surface without storing Chess.com credentials, cookies, sessions, API keys, games, or query history.
 
 ```text
-Codex -> HTTPS / Caddy -> authenticated MCP container -> HTTPS -> api.chess.com/pub
+Agent -> authenticated HTTP on localhost -> MCP container -> HTTPS -> api.chess.com/pub
 ```
 
 The primary transport is stateless Streamable HTTP with JSON responses. Local stdio is the default CLI transport. Remote Chess.com strings are returned as untrusted external data and are never treated as instructions or followed as URLs.
@@ -85,37 +85,20 @@ docker build -t chess-com-mcp:local .
 
 The final image runs as UID/GID `10001`, contains only runtime dependencies, removes Python and operating-system package managers, and defaults to `chess-com-mcp --transport http`. Override the command to use stdio or other supported CLI arguments.
 
-## Docker Compose with Caddy
+## Docker Compose on localhost
 
-Choose a LAN hostname that resolves to the Docker host from the Codex device. Supply both required values from the invoking shell; do not commit them to a file:
+Generate a bearer token and supply its agent map from the invoking shell; do not commit it to a file:
 
 ```sh
-export CHESS_COM_MCP_PUBLIC_HOST=chess-mcp.home.arpa
 MCP_TOKEN="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 export MCP_TOKEN
-export CHESS_COM_MCP_AUTH_TOKENS="$(.venv/bin/python -c 'import json,os; print(json.dumps({"codex-laptop": os.environ["MCP_TOKEN"]}))')"
+export CHESS_COM_MCP_AUTH_TOKENS="$(.venv/bin/python -c 'import json,os; print(json.dumps({"codex-local": os.environ["MCP_TOKEN"]}))')"
 docker compose up --build -d
 ```
 
-Compose starts exactly `chess-com-mcp` and `caddy` on a private bridge network. The MCP container binds `0.0.0.0:8765` internally but does not publish that port. Only Caddy publishes TCP/UDP port 443. Caddy uses its internal CA, proxies only `/mcp` and `/healthz`, and returns `404` elsewhere. Its PKI and operational state live in named volumes.
+The supplied `docker-compose.yml` starts only `chess-com-mcp`. The process binds `0.0.0.0:8765` inside the container, while Docker publishes it only to `127.0.0.1:8765` on the host. The MCP endpoint is therefore `http://127.0.0.1:8765/mcp`; it is not reachable from other LAN devices. Bearer authentication remains mandatory because the connection is unencrypted HTTP. Reverse proxies and TLS termination are infrastructure concerns and can be supplied separately according to the user's environment.
 
 The application constructs requests only below `https://api.chess.com/pub`, uses GET, verifies TLS, ignores proxy environment variables, refuses redirects, and bounds concurrency, retries, time, and decoded bytes. If the Docker host needs a network-level outbound allowlist in addition to this application boundary, enforce TCP 443 access to Chess.com's API at the host firewall or egress gateway.
-
-### Trust Caddy's internal root certificate
-
-After Caddy starts, copy its root certificate to the Docker host:
-
-```sh
-docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
-```
-
-Transfer `caddy-root.crt` to each trusted agent device over an authenticated channel and verify its fingerprint out of band. Install it as a trusted root:
-
-- macOS: open Keychain Access, import the certificate into the System keychain, and set it to **Always Trust**; administrator approval is required.
-- Debian/Ubuntu: copy it to `/usr/local/share/ca-certificates/chess-com-mcp.crt` and run `sudo update-ca-certificates`.
-- Other systems: use the operating system's root trust-store procedure. Do not disable TLS verification.
-
-Removing the `caddy_data` volume destroys the private CA. That requires distributing and trusting the newly generated root again.
 
 ## Codex configuration
 
@@ -127,7 +110,7 @@ export CHESS_COM_MCP_TOKEN='the-token-for-this-agent'
 
 ```toml
 [mcp_servers.chess_com]
-url = "https://chess-mcp.home.arpa/mcp"
+url = "http://127.0.0.1:8765/mcp"
 bearer_token_env_var = "CHESS_COM_MCP_TOKEN"
 required = true
 ```
@@ -178,7 +161,7 @@ CHESS_COM_MCP_RUN_INTEGRATION=1 PYTHONPATH=src .venv/bin/pytest -m live tests/te
 
 ### Continuous integration
 
-GitHub Actions runs workflow validation, formatting, linting, strict type checking, package building, dependency auditing, unit tests, offline integration tests, a native HTTP end-to-end test, and a Docker/Caddy HTTPS smoke test for every pull request and push to `main`. It also enforces the 90% coverage threshold, writes a coverage table to the workflow summary, and uploads XML, HTML, and JUnit reports for 14 days. The live Chess.com test runs after pushes to `main`, every Monday, or manually.
+GitHub Actions runs workflow validation, formatting, linting, strict type checking, package building, dependency auditing, unit tests, offline integration tests, a native HTTP end-to-end test, and a Docker Compose HTTP smoke test for every pull request and push to `main`. It also enforces the 90% coverage threshold, writes a coverage table to the workflow summary, and uploads XML, HTML, and JUnit reports for 14 days. The live Chess.com test runs after pushes to `main`, every Monday, or manually.
 
 In the GitHub branch-protection rules for `main`, mark the CI quality, unit, integration, coverage, end-to-end, and smoke jobs as required before merging. Keep the live integration workflow post-merge because it intentionally depends on an external service.
 

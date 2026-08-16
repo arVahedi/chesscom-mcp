@@ -161,7 +161,7 @@ jobs:
         run: scripts/http-e2e.sh
 
   smoke:
-    name: Docker and Caddy HTTPS smoke
+    name: Docker Compose HTTP smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

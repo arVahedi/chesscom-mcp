@@ -10,57 +10,15 @@ services:
       CHESS_COM_MCP_BIND_HOST: "0.0.0.0"
       CHESS_COM_MCP_PORT: "8765"
       CHESS_COM_MCP_AUTH_TOKENS: "${CHESS_COM_MCP_AUTH_TOKENS:?set CHESS_COM_MCP_AUTH_TOKENS to a nonempty JSON token map}"
-      CHESS_COM_MCP_ALLOWED_HOSTS: "${CHESS_COM_MCP_PUBLIC_HOST:?set CHESS_COM_MCP_PUBLIC_HOST to the exact external hostname}"
+      CHESS_COM_MCP_ALLOWED_HOSTS: "127.0.0.1:8765,localhost:8765"
       CHESS_COM_MCP_LOG_LEVEL: "WARNING"
-    expose:
-      - "8765"
-    networks:
-      - private
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    restart: on-failure:5
-
-  caddy:
-    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
-    environment:
-      CHESS_COM_MCP_PUBLIC_HOST: "${CHESS_COM_MCP_PUBLIC_HOST:?set CHESS_COM_MCP_PUBLIC_HOST to the exact external hostname}"
     ports:
-      - "443:443/tcp"
-      - "443:443/udp"
-    networks:
-      - private
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - "127.0.0.1:8765:8765"
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
     cap_drop:
       - ALL
-    cap_add:
-      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
     restart: on-failure:5
-    healthcheck:
-      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    depends_on:
-      chess-com-mcp:
-        condition: service_healthy
-
-networks:
-  private:
-    driver: bridge
-
-volumes:
-  caddy_data:
-  caddy_config:
