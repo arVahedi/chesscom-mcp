@@ -1,4 +1,4 @@
-# Chess.com Personal MCP Server
+# Chess.com MCP Server
 
 [![CI](https://github.com/arVahedi/chesscom-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/arVahedi/chesscom-mcp/actions/workflows/ci.yml)
 [![Live integration](https://github.com/arVahedi/chesscom-mcp/actions/workflows/live-integration.yml/badge.svg)](https://github.com/arVahedi/chesscom-mcp/actions/workflows/live-integration.yml)
